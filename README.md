@@ -5,7 +5,7 @@ This is the code of paper **Learning Task-relevant Representations for Generaliz
 
 
 ## Requirements
----
+
 Python 3.6.9
 PyTorch 1.10
 tqdm
@@ -20,7 +20,7 @@ pip install -r requirements.txt
 
 
 ## Reproduce the Results
----
+
 For example, run experiments on Cartpole Swingup with color distractions
 
 ``` bash
@@ -29,11 +29,11 @@ bash run.sh
 
 
 ## Citation
----
+
 If you find this code useful, please consider citing the following paper.
 
 ## Remarks
----
+
 ```
 @article{yang2022learning,
   title={Learning Task-relevant Representations for Generalization via Characteristic Functions of Reward Sequence Distributions},
@@ -44,5 +44,5 @@ If you find this code useful, please consider citing the following paper.
 ```
 
 ## Remarks
----
+
 We will release our data reported in our paper soon.
