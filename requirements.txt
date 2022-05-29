@@ -1,0 +1,16 @@
+numpy==1.19.1
+dm_env==1.2
+torchvision==0.7.0
+termcolor==1.1.0
+joblib==0.16.0
+opencv_python==4.4.0.42
+gym==0.15.7
+mpi4py==3.0.3
+torch==1.6.0
+imageio==2.9.0
+dm_control==0.0.322773188
+distracting_control.egg==info
+distracting_control==0.1.1rc3
+mujoco-py==2.0.2.13
+PyYAML==6.0
+pyzmq==23.0.0

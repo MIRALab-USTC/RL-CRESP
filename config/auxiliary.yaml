@@ -1,0 +1,18 @@
+# auxiliary
+cresp:
+  extr_latent_dim: 50
+  nstep_of_rsd: 5
+  hidden_dim: 1024
+  l: 2
+  act_seq_out_dim: 5
+  omg_seq_out_dim: 5
+  output_dim: 7
+  rs_fc: True
+  extr_lr: 5.e-4
+  extr_beta: 0.9
+  omega_opt_mode: ~ # choices=[None, 'min_mu', 'min_all', 'sample']
+  opt_mode: 'min' # choices=['min', 'max', 'random']
+  opt_num: 5
+  num_sample: 256
+  temperature: 0.1
+  discount_of_rs: 0.8

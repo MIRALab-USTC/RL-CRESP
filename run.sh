@@ -1,0 +1,41 @@
+python launch.py \
+    --env dmc.cartpole.swingup \
+    --agent drq \
+    --base sac \
+    --auxiliary cresp \
+    --num_sources 2 \
+    --dynamic -co -tco \
+    --disenable_default \
+    --critic_lr 5e-4 \
+    --actor_lr 5e-4 \
+    --alpha_lr 5e-4 \
+    --extr_lr 5e-4 \
+    --nstep_of_rsd 5 \
+    --num_sample 256 \
+    --opt_mode max \
+    --omega_opt_mode min_mu \
+    --rs_fc \
+    --discount_of_rs 0.8 \
+    --extr_update_via_qfloss False \
+    -s 0 --cuda_id 0
+
+python launch.py \
+    --env dmc.cheetah.run \
+    --agent drq \
+    --base sac \
+    --auxiliary cresp \
+    --num_sources 2 \
+    --dynamic -co -tco \
+    --disenable_default \
+    --critic_lr 3e-4 \
+    --actor_lr 3e-4 \
+    --alpha_lr 3e-4 \
+    --extr_lr 3e-4 \
+    --nstep_of_rsd 5 \
+    --num_sample 256 \
+    --opt_mode max \
+    --omega_opt_mode min_mu \
+    --rs_fc \
+    --discount_of_rs 0.8 \
+    --extr_update_via_qfloss True \
+    -s 0 --cuda_id 0

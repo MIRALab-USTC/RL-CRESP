@@ -1,0 +1,24 @@
+num_fc: 2
+
+# agent
+drq:
+  data_aug: shift
+  agent_params:
+    image_pad: 4
+  agent_base_params:
+    num: 2
+    actor_update_freq: 2
+    actor_update_mode: 'min'
+  extr_params:
+    targ_extr: True
+
+curl:
+  data_aug: shift
+  agent_params:
+    image_pad: 4
+  agent_base_params:
+    num: 2
+    actor_update_freq: 2
+    actor_update_mode: 'min'
+  extr_params:
+    targ_extr: True

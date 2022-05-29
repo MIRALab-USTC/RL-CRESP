@@ -1,0 +1,6 @@
+actor_log_std_min: -5
+actor_log_std_max: 2
+
+init_temperature: 0.1
+
+std_clip: 0.3
