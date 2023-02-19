@@ -1,0 +1,23 @@
+defaults:
+  - _self_
+
+# experiment
+experiment: drq
+save_dir: ~
+
+agent:
+  _target_: drq.DrQAgent
+  obs_shape: ??? # to be specified later
+  action_shape: ??? # to be specified later
+  device: ${device}
+  lr: ${lr}
+  actor_update_times: ${actor_update_times}
+  critic_update_times: ${critic_update_times}
+  critic_target_tau: 0.01
+  critic_target_update_freq: ${critic_target_update_freq}
+  update_every_steps: 1
+  use_tb: ${use_tb}
+  num_expl_steps: 2000
+  hidden_dim: 1024
+  feature_dim: ${feature_dim}
+  init_temperature: 0.1

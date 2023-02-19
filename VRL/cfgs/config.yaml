@@ -1,0 +1,66 @@
+defaults:
+  - _self_
+  - task@_global_: online_dmc
+  - algo@_global_: drq
+  - override hydra/launcher: submitit_local
+
+# task settings
+frame_stack: 3
+action_repeat: 2
+discount: 0.99
+distracting_mode: hard
+# train settings
+num_seed_frames: 4000
+load_model: False
+# eval
+eval_every_frames: 10000
+num_eval_episodes: 10
+eval_on_dcs: True
+eval_save_vid_every_step: 100000
+# snapshot
+save_snapshot: True
+# replay buffer
+replay_buffer_size: 1_000_000
+replay_buffer_num_workers: 8
+nstep: 1
+batch_size: 256
+# misc
+seed: 1
+cuda_id: 0
+device: cuda
+save_video: True
+save_train_video: False
+use_tb: True
+# experiment
+experiment: exp
+# agent
+lr: 1e-4
+# actor_lr: 1e-4
+# critic_lr: 1e-4
+# encoder_lr: 1e-4
+feature_dim: 50
+# dcs
+dcs_type: color
+num_sources: 2
+num_videos: 1
+scale: 0.1
+scale_end: 0.2
+eval_scale: 0.5
+data_path: /home/amax/data/DAVIS/JPEGImages/480p/
+exp_name: ~
+
+hydra:
+  run:
+     dir: exp_local/${train_mode}/${experiment}/${task_name}/${dcs_type}/${now:%Y.%m.%d}/${exp_name}/${exp_name}_s${seed} #_${hydra.job.override_dirname}
+    #  dir: exp_local/${train_mode}/${experiment}/${task_name}/${dcs_type}/${now:%Y.%m.%d}/${exp_name}-${now:%H%M%S}_s${seed} #_${hydra.job.override_dirname}
+  sweep:
+    dir: ./exp/${now:%Y.%m.%d}/${now:%H%M}_${agent_cfg.experiment}
+    subdir: ${hydra.job.num}
+  launcher:
+    timeout_min: 4300
+    cpus_per_task: 10
+    gpus_per_node: 1
+    tasks_per_node: 1
+    mem_gb: 160
+    nodes: 1
+    submitit_folder: ./exp/${now:%Y.%m.%d}/${now:%H%M%S}_${agent_cfg.experiment}/.slurm
