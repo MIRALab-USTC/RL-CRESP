@@ -7,7 +7,9 @@ feature_dim: 128
 use_cf: True
 cf_weight: 1.0
 rsd_discount: 0.9
+update_crest_times: 5
 save_dir: ~
+cf_lr: 1.e-3
 
 agent:
   _target_: crespt.Agent
@@ -16,8 +18,10 @@ agent:
   device: ${device}
   use_cf: ${use_cf}
   lr: ${lr}
+  cf_lr: ${cf_lr}
   actor_update_times: ${actor_update_times}
   critic_update_times: ${critic_update_times}
+  update_crest_times: ${update_crest_times}
   critic_target_tau: 0.01
   critic_target_update_freq: ${critic_target_update_freq}
   update_every_steps: 1

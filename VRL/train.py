@@ -81,9 +81,6 @@ class Workspace:
                       specs.Array((1,), np.float32, 'reward'),
                       specs.Array((1,), np.float32, 'discount'))
 
-        if self.cfg.rew_noise is not None:
-            self.cfg.rew_noise = {'mu': self.cfg.rew_noise_mu, 'std': self.cfg.rew_noise_std}
-
         self.replay_buffer = EfficientReplayBuffer(self.cfg.replay_buffer_size,
                                                    self.cfg.batch_size,
                                                    self.cfg.nstep,

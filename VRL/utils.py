@@ -301,3 +301,21 @@ def compute_cl_loss(z1, z2, labels=None, mask=None, temperature=1.0):
         diff = pred_prob - target.float()
     loss = (similarity * diff).sum(-1).mean(-1)
     return loss, accuracy
+
+
+def cross_entropy(inputs, labels):
+    # inputs: (K, B, B); labels: (B,); output: (K,)
+    K = inputs.shape[0]
+    inputs = inputs.view(-1, inputs.shape[-1])
+    log_softmax = torch.nn.functional.log_softmax(inputs, dim=-1) # (K*B, B)
+    indices = labels.view(-1, 1).repeat(K, 1) # (K*B, 1)
+    log_probs = log_softmax.gather(1, indices).view(K, -1) # (K, B)
+    return -log_probs.mean(-1)
+
+
+def compute_curl_loss(z1, z2):
+    # z1: (K, B, Z); z2: (B, Z); output: (K, )
+    logits = z1 @ z2.T # (K, B, B)
+    logits = logits - torch.max(logits, -1)[0][:, :, None] # (K, B, B) - (K, B, 1)
+    labels = torch.arange(logits.shape[-1]).long().to(z1.device) # (B,)
+    return cross_entropy(logits, labels)

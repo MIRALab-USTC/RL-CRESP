@@ -358,11 +358,12 @@ class Agent:
                  critic_target_update_freq=2, augmentation=RandomShiftsAug(pad=4), # CRESP-T
                  rsd_nstep=5, rsd_discount=0.99, cf_temp=0.1, cf_output_dim=7, cf_elite_num=5,
                  cf_output_mode='min', cf_weight=1.0, cf_update_freq=10, omega_num_sample=256,
-                 omega_cf_output_mode='min_mu'):
+                 omega_cf_output_mode='min_mu', update_crest_times=1, cf_lr=1e-3):
         self.use_cf = use_cf
         self.device = device
         self.actor_update_times = actor_update_times
         self.critic_update_times = critic_update_times
+        self.update_crest_times = update_crest_times
         self.critic_target_tau = critic_target_tau
         self.critic_target_update_freq = critic_target_update_freq
         self.update_every_steps = update_every_steps
@@ -408,7 +409,7 @@ class Agent:
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=lr)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=lr)
         self.alpha_opt = torch.optim.Adam([self.log_alpha], lr=lr, betas=(0.5, 0.999))
-        self.cfpred_opt = self.cfpred.configure_optimizers(learning_rate=lr, weight_decay=0.0)
+        self.cfpred_opt = self.cfpred.configure_optimizers(learning_rate=cf_lr, weight_decay=0.0)
 
         # data augmentation
         self.aug = augmentation
@@ -490,12 +491,12 @@ class Agent:
 
         # Cross Entropy
         batch_size, *_ = psi_targ.size()
-        psi_ce_targ = psi_targ.reshape(batch_size, -1) # (B, N*2)
-        psi1_ce = psi1.reshape(psi1.size(0), batch_size, -1) # (K, B, N*2)
-        psi2_ce = psi2.reshape(psi2.size(0), batch_size, -1) # (K, B, N*2)
+        psi_ce_targ = psi_targ.transpose(1, 2).reshape(batch_size*2, -1) # (B*2, N)
+        psi1_ce = psi1.transpose(2, 3).reshape(psi1.size(0), batch_size*2, -1) # (K, B*2, N)
+        psi2_ce = psi2.transpose(2, 3).reshape(psi2.size(0), batch_size*2, -1) # (K, B*2, N)
 
-        loss_psi1_ce, acc1 = utils.compute_ce_loss(psi1_ce, psi_ce_targ, self.cf_temp)
-        loss_psi2_ce, acc2 = utils.compute_ce_loss(psi2_ce, psi_ce_targ, self.cf_temp)
+        loss_psi1_ce = utils.compute_curl_loss(psi1_ce, psi_ce_targ)
+        loss_psi2_ce = utils.compute_curl_loss(psi2_ce, psi_ce_targ)
         loss_psi_ce = self.cfpred.elite_rank(loss_psi1_ce, loss_psi1_ce.detach()) \
                         + self.cfpred.elite_rank(loss_psi2_ce, loss_psi2_ce.detach())
         # Total Loss
@@ -508,12 +509,12 @@ class Agent:
             metrics['extr_mse_loss'] = loss_psi_mse.item() / 2
             metrics['extr_std_loss'] = loss_psi_std.item() / 2
             metrics['extr_ce_loss'] = loss_psi_ce.sum().item() / 2
-            metrics['extr_ce_acc'] = (acc1 + acc2).mean().item() / 2
-            if step % 100 == 0:
-                pe = psi1_error[0, :, 0].reshape(psi1_error.size(1), -1)#[:20]
-                plt.figure()
-                [plt.plot(np.arange(p.size(0)), p.detach().cpu().numpy()) for p in pe]
-                metrics['psi_error_fig'] = plt.gcf()
+            metrics['extr_ce_acc'] = 0.0 #(acc1 + acc2).mean().item() / 2
+            # if step % 100 == 0:
+                # pe = psi1_error[0, :, 0].reshape(psi1_error.size(1), -1)#[:20]
+                # plt.figure()
+                # [plt.plot(np.arange(p.size(0)), p.detach().cpu().numpy()) for p in pe]
+                # metrics['psi_error_fig'] = plt.gcf()
 
         # optimize encoder and cfpred
         if cfp_opt is not None:
@@ -561,12 +562,12 @@ class Agent:
             metrics['critic_q2'] = Q2.mean().item()
             metrics['critic_loss'] = critic_loss.item() / 2
             # Qmin, Qmax = Q1.min(0)[0], Q2.max(0)[0]
-            Qmin, Qmax = torch.min(Q1, Q2), torch.max(Q1, Q2)
-            plt.clf()
-            plt.scatter(Qmin.detach().cpu().numpy(), target_Q.detach().cpu().numpy(), s=50, alpha=0.3)
-            plt.scatter(Qmax.detach().cpu().numpy(), target_Q.detach().cpu().numpy(), s=50, alpha=0.3)
-            plt.plot([target_Q.min().item(), target_Q.max().item()], [target_Q.min().item(), target_Q.max().item()], c='r')
-            metrics['Q_targQ_fig'] = plt.gcf()
+            # Qmin, Qmax = torch.min(Q1, Q2), torch.max(Q1, Q2)
+            # plt.clf()
+            # plt.scatter(Qmin.detach().cpu().numpy(), target_Q.detach().cpu().numpy(), s=50, alpha=0.3)
+            # plt.scatter(Qmax.detach().cpu().numpy(), target_Q.detach().cpu().numpy(), s=50, alpha=0.3)
+            # plt.plot([target_Q.min().item(), target_Q.max().item()], [target_Q.min().item(), target_Q.max().item()], c='r')
+            # metrics['Q_targQ_fig'] = plt.gcf()
 
         # optimize encoder and critic
         optim = dict(opt1=self.encoder_opt, opt2=self.critic_opt)
@@ -650,7 +651,8 @@ class Agent:
             metrics = self.update_actor_critic(obs, action, reward, discount, next_obs, i)
 
             if self.use_cf:
-                metrics.update(self.crest(replay_buffer, step+i))
+                for j in range(self.update_crest_times):
+                    metrics.update(self.crest(replay_buffer, step+i))
 
         # update critic target
         if step % self.critic_target_update_freq == 0:

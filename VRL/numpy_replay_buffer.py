@@ -43,7 +43,7 @@ class EfficientReplayBuffer(AbstractReplayBuffer):
         self.discount_vec = np.power(discount, np.arange(nstep))  # n_step - first dim should broadcast
         self.next_dis = discount ** nstep
         self.sarsa = sarsa
-        self.rew_noise = rew_noise # dict('mu'=0, 'std'=?) or None
+        self.rew_noise = rew_noise # (mu=0, std=?, enable=false)
 
     def _initial_setup(self, time_step):
         self.index = 0
@@ -129,8 +129,8 @@ class EfficientReplayBuffer(AbstractReplayBuffer):
         nobs_gather_ranges = all_gather_ranges[:, -self.frame_stack:]  # (B, FS)
 
         all_rewards = self.rew[gather_ranges]
-        if self.rew_noise is not None:
-            noise = np.random.randn(*all_rewards.shape) * self.rew_noise['std'] + self.rew_noise['mu']
+        if self.rew_noise.enable:
+            noise = np.random.randn(*all_rewards.shape) * self.rew_noise.std + self.rew_noise.mu
             all_rewards += noise
             all_rewards = all_rewards.clip(0.0, 1.0)
 
@@ -160,6 +160,12 @@ class EfficientReplayBuffer(AbstractReplayBuffer):
         obs = np.reshape(self.obs[obs_gather_ranges], [B, *self.obs_shape])
         all_acts = self.act[gather_ranges]  # (B, MS, A)
         all_rewards = self.rew[gather_ranges]# * np.power(self.discount, np.arange(self.multi_step))  # (B, MS)
+
+        if self.rew_noise.enable:
+            noise = np.random.randn(*all_rewards.shape) * self.rew_noise.std + self.rew_noise.mu
+            all_rewards += noise
+            all_rewards = all_rewards.clip(0.0, 1.0)
+
         if only_rsd:
             return (obs, all_acts, all_rewards)
 
@@ -183,6 +189,10 @@ class EfficientReplayBuffer(AbstractReplayBuffer):
         all_acts = self.act[gather_ranges]  # (B, MS, A)
         all_rewards = self.rew[gather_ranges]# * np.power(self.discount, np.arange(self.multi_step))  # (B, MS)
         # act = self.act[indices] # all_acts[:, 0]
+        if self.rew_noise.enable:
+            noise = np.random.randn(*all_rewards.shape) * self.rew_noise.std + self.rew_noise.mu
+            all_rewards += noise
+            all_rewards = all_rewards.clip(0.0, 1.0)
 
         obses_gather_ranges = [all_gather_ranges[:, i+1:self.frame_stack+i+1] for i in range(self.multi_step)]
         obses_gather_ranges = np.stack(obses_gather_ranges, -1).reshape(B, -1)  # (B, MS * FS)
