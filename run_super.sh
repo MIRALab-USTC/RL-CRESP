@@ -1,0 +1,40 @@
+task_name=(cartpole_swingup cartpole_swingup cartpole_swingup)
+cuda_id=(5 6 7)
+seed=(1 2 3)
+dcs_type=background
+num_sources=2
+batch_size=256
+num_train_frames=500010
+algo=srm
+use_super=true
+update_super_times=5
+super_lr=0.00005
+super_start_step=5000
+# algo_name=${algo}-qf1-background2
+algo_name=super_${algo}_up${update_super_times}-lr${super_lr}-qf1-background2
+
+for ((i=0;i<${#cuda_id[@]};i++))
+do
+    CUDA_VISIBLE_DEVICES=${cuda_id[i]} nohup python -u VRL/train.py \
+        task_name=${task_name[i]} \
+        task=online_dmc \
+        algo=${algo} \
+        action_repeat=2 \
+        nstep=3 \
+        num_train_frames=${num_train_frames} \
+        batch_size=${batch_size} \
+        lr=0.0001 \
+        feature_dim=64 \
+        agent.use_super=${use_super} \
+        agent.super_lr=${super_lr} \
+        agent.super_start_step=${super_start_step} \
+        agent.update_super_times=${update_super_times} \
+        agent.update_every_steps=1 \
+        eval_on_dcs=true \
+        num_sources=${num_sources} \
+        dcs_type=${dcs_type} \
+        data_path=/home/amax/sda6/amax/rl/data/DAVIS/JPEGImages/480p/ \
+        use_tb=true \
+        seed=${seed[i]} \
+        exp_name=${algo_name} > ${algo_name}-${task_name[i]}-s${seed[i]}.log 2>&1 &
+done

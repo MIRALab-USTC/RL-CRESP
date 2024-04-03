@@ -6,7 +6,7 @@ defaults:
 
 # task settings
 frame_stack: 3
-action_repeat: 2
+action_repeat: 0
 discount: 0.99
 distracting_mode: hard
 # train settings
@@ -24,6 +24,7 @@ replay_buffer_size: 1_000_000
 replay_buffer_num_workers: 8
 nstep: 1
 batch_size: 256
+stddev_schedule: 'linear(1.0,0.1,100000)'
 # misc
 seed: 1
 cuda_id: 0
@@ -51,7 +52,7 @@ exp_name: ~
 
 hydra:
   run:
-     dir: exp_local/${train_mode}/${experiment}/${task_name}/${dcs_type}/${now:%Y.%m.%d}/${exp_name}/${exp_name}_s${seed} #_${hydra.job.override_dirname}
+     dir: exp_local/${train_mode}/${experiment}/${task_name}/${dcs_type}/${now:%Y.%m.%d}/${exp_name}-${now:%H%M%S}/s${seed} #_${hydra.job.override_dirname}
     #  dir: exp_local/${train_mode}/${experiment}/${task_name}/${dcs_type}/${now:%Y.%m.%d}/${exp_name}-${now:%H%M%S}_s${seed} #_${hydra.job.override_dirname}
   sweep:
     dir: ./exp/${now:%Y.%m.%d}/${now:%H%M}_${agent_cfg.experiment}

@@ -52,7 +52,10 @@ class Workspace:
         cuda_id = "cuda:%d" % cfg.cuda_id
         self.device = torch.device(cuda_id if cfg.device == "cuda" else "cpu")
         print("-----DEVICE: ", self.device, "------")
-        self.cfg.action_repeat = _ACTION_REPEAT.get(self.cfg.task_name, self.cfg.action_repeat)
+        if self.cfg.action_repeat == 0:
+            self.cfg.action_repeat = _ACTION_REPEAT.get(self.cfg.task_name, self.cfg.action_repeat)
+            if self.cfg.action_repeat == 0:
+                self.cfg.action_repeat = 2
         self.setup()
 
         self.agent = make_agent(self.eval_env.observation_spec(),
@@ -165,7 +168,8 @@ class Workspace:
         if self.load_agent():
             self.train_online()
 
-        write_dir = "./main_results/"
+        write_dir = "/home/amax/sda6/amax/rl/RL-CRESP/main_results/"
+        # write_dir = "./main_results/"
         self.save_log_for_the_end(
             f"{write_dir}{self.cfg.task_name}",
             self.distracting_envs[0], max_episode=10)
@@ -175,37 +179,12 @@ class Workspace:
 
 
     def save_log_for_the_end(self, write_dir, env, max_episode=100):
+        self._global_step += 1
+        # evaluate the agent with an episode number: max_episode
         eval_info = self.eval_single_env(env, '', self.agent, self.global_episode,
-                                         self.global_step, self.global_frame, False,
+                                         self.global_step, self.global_frame, True,
                                          max_episode)
-        write_dir = f"{write_dir}-{max_episode}.csv"
-        if self.cfg.dcs_type == 'background':
-            start_scale, end_scale, target_scale = 1, self.cfg.num_sources, 30
-        else:
-            start_scale, end_scale, target_scale = self.cfg.scale, self.cfg.scale_end, self.cfg.eval_scale
-
-        with open(write_dir, 'a') as f:
-            csv_writer = csv.DictWriter(f, fieldnames=[
-                'return', 'seed', 'type', 'num_domains', 'start_scale', 'end_scale', 'target_scale',
-                'length', 'discount', 'algo', 'batch_size'
-            ])
-            data={}
-            data['return'] = eval_info['episode_reward']
-            data['seed'] = self.cfg.seed
-            data['type'] = self.cfg.dcs_type
-            data['num_domains'] = self.cfg.num_sources
-            data['start_scale'] = start_scale
-            data['end_scale'] = end_scale
-            data['target_scale'] = target_scale
-            try:
-                data['length'] = self.cfg.agent.rsd_nstep
-            except:
-                data['length'] = 0
-            data['discount'] = self.cfg.rsd_discount if self.cfg.rsd_discount else self.cfg.discount
-            data['algo'] = self.cfg.experiment
-            data['batch_size'] = self.cfg.batch_size
-            csv_writer.writerow(data)
-        print(max_episode, "return: ", eval_info['episode_reward'])
+        utils.save_log_in_csv(eval_info, write_dir, max_episode, self.cfg)
 
     def train_online(self):
         # predicates
@@ -220,7 +199,7 @@ class Workspace:
                                                self.cfg.action_repeat)
 
         print(self.replay_buffer.nstep, self.replay_buffer.rsd_nstep)
-        print(self.agent.update_times, self.agent.actor_update_times, self.agent.critic_update_times, self.agent.critic_target_update_freq)
+        # print(self.agent.update_times, self.agent.actor_update_times, self.agent.critic_update_times, self.agent.critic_target_update_freq)
         episode_step, episode_reward = 0, 0
         time_step = self.env.reset()
         self.replay_buffer.add(time_step)

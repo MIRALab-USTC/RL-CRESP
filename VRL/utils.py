@@ -190,6 +190,22 @@ def squash(mu, pi, log_pi):
     return mu, pi, log_pi
 
 
+def kl_divergence(p_mu, p_std, q_mu, q_std):
+    var_ratio = (p_std / q_std).pow(2)
+    t1 = ((p_mu - q_mu) / q_std).pow(2)
+    kl_divergence = 0.5 * (var_ratio + t1 - 1 - var_ratio.log()).mean()
+    return kl_divergence
+
+
+def soft_clamp(x : torch.Tensor, _min=None, _max=None):
+    # clamp tensor values while mataining the gradient
+    if _max is not None:
+        x = _max - F.softplus(_max - x)
+    if _min is not None:
+        x = _min + F.softplus(x - _min)
+    return x
+
+
 class EnsembleLinear(nn.Module):
 
     def __init__(self, in_features, out_features, in_channels=5, weight_decay=0., bias=True):
@@ -313,9 +329,297 @@ def cross_entropy(inputs, labels):
     return -log_probs.mean(-1)
 
 
+# def compute_curl_loss(z1, z2):
+#     # z1: (K, B, Z); z2: (B, Z); output: (K, )
+#     logits = z1 @ z2.T # (K, B, B)
+#     logits = logits - torch.max(logits, -1)[0][:, :, None] # (K, B, B) - (K, B, 1)
+#     labels = torch.arange(logits.shape[-1]).long().to(z1.device) # (B,)
+#     return cross_entropy(logits, labels)
+
+
 def compute_curl_loss(z1, z2):
-    # z1: (K, B, Z); z2: (B, Z); output: (K, )
-    logits = z1 @ z2.T # (K, B, B)
-    logits = logits - torch.max(logits, -1)[0][:, :, None] # (K, B, B) - (K, B, 1)
-    labels = torch.arange(logits.shape[-1]).long().to(z1.device) # (B,)
-    return cross_entropy(logits, labels)
+    logits = torch.matmul(z1, z2.T)
+    logits = logits - torch.max(logits, 1)[0][:, None]
+    labels = torch.arange(logits.shape[0]).long().to(z1.device)
+    return F.cross_entropy(logits, labels)
+
+
+def schedule(schdl, step):
+    try:
+        return float(schdl)
+    except ValueError:
+        match = re.match(r'linear\((.+),(.+),(.+)\)', schdl)
+        if match:
+            init, final, duration = [float(g) for g in match.groups()]
+            mix = np.clip(step / duration, 0.0, 1.0)
+            return (1.0 - mix) * init + mix * final
+        match = re.match(r'step_linear\((.+),(.+),(.+),(.+),(.+)\)', schdl)
+        if match:
+            init, final1, duration1, final2, duration2 = [
+                float(g) for g in match.groups()
+            ]
+            if step <= duration1:
+                mix = np.clip(step / duration1, 0.0, 1.0)
+                return (1.0 - mix) * init + mix * final1
+            else:
+                mix = np.clip((step - duration1) / duration2, 0.0, 1.0)
+                return (1.0 - mix) * final1 + mix * final2
+    raise NotImplementedError(schdl)
+
+
+# Schedulers for beta
+class Scheduler(object):
+    def __call__(self, **kwargs):
+        raise NotImplementedError()
+
+class LinearScheduler(Scheduler):
+    def __init__(
+        self, start_value, end_value, n_iterations, start_iteration=0
+    ):
+        self.start_value = start_value
+        self.end_value = end_value
+        self.n_iterations = n_iterations
+        self.start_iteration = start_iteration
+        self.m = (end_value - start_value) / n_iterations
+
+    def __call__(self, iteration):
+        if iteration > self.start_iteration + self.n_iterations:
+            return self.end_value
+        elif iteration <= self.start_iteration:
+            return self.start_value
+        else:
+            return (
+                (iteration - self.start_iteration) * self.m + self.start_value
+            )
+
+class ExponentialScheduler(LinearScheduler):
+    def __init__(
+        self, start_value, end_value, n_iterations, start_iteration=0,
+    ):
+        super(ExponentialScheduler, self).__init__(
+            start_value=np.log10(start_value),
+            end_value=np.log10(end_value),
+            n_iterations=n_iterations,
+            start_iteration=start_iteration
+        )
+
+    def __call__(self, iteration):
+        linear_value = super(ExponentialScheduler, self).__call__(iteration)
+        return np.power(10., linear_value)
+
+
+class TruncatedNormal(pyd.Normal):
+    def __init__(self, loc, scale, low=-1.0, high=1.0, eps=1e-6):
+        super().__init__(loc, scale, validate_args=False)
+        self.low = low
+        self.high = high
+        self.eps = eps
+
+    def _clamp(self, x):
+        clamped_x = torch.clamp(x, self.low + self.eps, self.high - self.eps)
+        x = x - x.detach() + clamped_x.detach()
+        return x
+
+    def sample(self, clip=None, sample_shape=torch.Size()):
+        shape = self._extended_shape(sample_shape)
+        eps = _standard_normal(shape,
+                               dtype=self.loc.dtype,
+                               device=self.loc.device)
+        eps *= self.scale
+        if clip is not None:
+            eps = torch.clamp(eps, -clip, clip)
+        x = self.loc + eps
+        return self._clamp(x)
+
+
+import csv
+
+CSV_HEAD = ['return', 'seed', 'type', 'num_domains', 'start_scale', 'end_scale',
+            'target_scale', 'length', 'nstep', 'discount', 'algo', 'batch_size']
+
+def save_log_in_csv(eval_info: dict, write_dir: str, max_episode: int, cfg: dict):
+    write_dir = f"{write_dir}-{max_episode}.csv"
+    if cfg.dcs_type == 'background':
+        start_scale, end_scale, target_scale = 1, cfg.num_sources, 30
+    elif cfg.dcs_type == 'color':
+        start_scale, end_scale = cfg.scale, cfg.scale_end
+        target_scale = cfg.eval_scale
+    elif cfg.dcs_type == 'common':
+        start_scale, end_scale, target_scale = 0, 0, 0
+    else:
+        raise ValueError("Environment type %s is not enable." % cfg.dcs_type)
+
+    try:
+        with open(write_dir, 'r') as f:
+            line = f.readline()
+            write_head = line[:6] != CSV_HEAD[0]
+    except:
+        write_head = True
+
+    with open(write_dir, 'a') as f:
+        csv_writer = csv.DictWriter(f, fieldnames=CSV_HEAD)
+        data = {}
+        if write_head:
+            for key in CSV_HEAD:
+                data[key] = key
+            csv_writer.writerow(data)
+            data = {}
+        data['return'] = eval_info['episode_reward']
+        data['seed'] = cfg.seed
+        data['type'] = cfg.dcs_type
+        data['num_domains'] = cfg.num_sources if not cfg.dcs_type == 'common' else 1
+        data['start_scale'] = start_scale
+        data['end_scale'] = end_scale
+        data['target_scale'] = target_scale
+        # data['length'] = cfg.rsd_nstep
+        data['nstep'] = cfg.nstep
+        data['discount'] = cfg.rsd_discount if cfg.rsd_discount else cfg.discount
+        data['algo'] = cfg.exp_name
+        data['batch_size'] = cfg.batch_size
+        csv_writer.writerow(data)
+    print(max_episode, "return: ", eval_info['episode_reward'])
+
+
+import json
+import os
+import torchvision.transforms as TF
+import torchvision.datasets as datasets
+
+places_dataloader = None
+places_iter = None
+
+def load_config(key=None):
+    current_dir = os.path.dirname(__file__)
+    path = os.path.join(f'{current_dir}/cfgs', 'aug_config.cfg')
+    with open(path) as f:
+        data = json.load(f)
+    if key is not None:
+        return data[key]
+    return data
+
+def _load_places(batch_size=256, image_size=84, num_workers=8, use_val=False):
+	global places_dataloader, places_iter
+	partition = 'val' if use_val else 'train'
+	print(f'Loading {partition} partition of places365_standard...')
+	for data_dir in load_config('datasets'):
+		if os.path.exists(data_dir):
+			fp = os.path.join(data_dir, 'places365_standard', partition)
+			if not os.path.exists(fp):
+				print(f'Warning: path {fp} does not exist, falling back to {data_dir}')
+				fp = data_dir
+			places_dataloader = torch.utils.data.DataLoader(
+				datasets.ImageFolder(fp, TF.Compose([
+					TF.RandomResizedCrop(image_size),
+					TF.RandomHorizontalFlip(),
+					TF.ToTensor()
+				])),
+				batch_size=batch_size, shuffle=True,
+				num_workers=num_workers, pin_memory=True)
+			places_iter = iter(places_dataloader)
+			break
+	if places_iter is None:
+		raise FileNotFoundError('failed to find places365 data at any of the specified paths')
+	print('Loaded dataset from', data_dir)
+
+def _get_places_batch(batch_size):
+	global places_iter
+	try:
+		imgs, _ = next(places_iter)
+		if imgs.size(0) < batch_size:
+			places_iter = iter(places_dataloader)
+			imgs, _ = next(places_iter)
+	except StopIteration:
+		places_iter = iter(places_dataloader)
+		imgs, _ = next(places_iter)
+	return imgs.cuda()
+
+def random_overlay(x, dataset='places365_standard'):
+	"""Randomly overlay an image from Places"""
+	global places_iter
+	alpha = 0.5
+
+	if dataset == 'places365_standard':
+		if places_dataloader is None:
+			_load_places(batch_size=x.size(0), image_size=x.size(-1))
+		imgs = _get_places_batch(batch_size=x.size(0)).repeat(1, x.size(1)//3, 1, 1)
+	else:
+		raise NotImplementedError(f'overlay has not been implemented for dataset "{dataset}"')
+
+	return ((1-alpha)*(x/255.) + (alpha)*imgs)*255.
+
+
+
+# The SRM code, version 1, circle-ring shaped mask
+def random_mask_freq_v1(x):
+        p = random.uniform(0, 1)
+        if p > 0.5:
+             return x
+        # need to adjust r1 r2 and delta for best performance
+        r1=random.uniform(0,0.5)
+        delta_r=random.uniform(0,0.035)
+        r2=np.min((r1+delta_r,0.5))
+        # print(r2)
+        # generate Mask M
+        B,C,H,W = x.shape
+        center = (int(H/2), int(W/2))
+        diagonal_lenth = max(H,W) # np.sqrt(H**2+W**2) is also ok, use a smaller r1
+        r1_pix = diagonal_lenth * r1
+        r2_pix = diagonal_lenth * r2
+        Y_coord, X_coord = np.ogrid[:H, :W]
+        dist_from_center = np.sqrt((Y_coord - center[0])**2 + (X_coord - center[1])**2)
+        M = dist_from_center <= r2_pix
+        M = M * (dist_from_center >= r1_pix)
+        M = ~M
+
+        # mask Fourier spectrum
+        M = torch.from_numpy(M).float().to(x.device)
+        srm_out = torch.zeros_like(x)
+        for i in range(C):
+            x_c = x[:,i,:,:]
+            x_spectrum = torch.fft.fftn(x_c, dim=(-2,-1))
+            x_spectrum = torch.fft.fftshift(x_spectrum, dim=(-2,-1))
+            out_spectrum = x_spectrum * M
+            out_spectrum = torch.fft.ifftshift(out_spectrum, dim=(-2,-1))
+            srm_out[:,i,:,:] = torch.fft.ifftn(out_spectrum, dim=(-2,-1)).float()
+        return srm_out
+
+def random_mask_freq_v2(x):
+    p = random.uniform(0, 1)
+    if p > 0.5:
+        return x
+
+    # dynamicly select freq range to erase
+    A = 0
+    B = 0.5
+    a = random.uniform(A, B)
+    C = 2
+    freq_limit_low = round(a, C)
+
+    A = 0
+    B = 0.05
+    a = random.uniform(A, B)
+    C = 2
+    diff = round(a, C)
+    freq_limit_hi = freq_limit_low + diff
+
+    # b, 9, h, w
+    b, c, h, w = x.shape
+    x0, x1, x2 = torch.chunk(x, 3, dim=1)
+    # b, 3, 3, h, w
+    x = torch.cat((x0.unsqueeze(1), x1.unsqueeze(1), x2.unsqueeze(1)), dim=1)
+
+    pass1 = torch.abs(torch.fft.fftfreq(x.shape[-1], device=x.device)) < freq_limit_hi
+    pass2 = torch.abs(torch.fft.fftfreq(x.shape[-2], device=x.device)) < freq_limit_hi
+    kernel1 = torch.outer(pass2, pass1)  # freq_limit_hi square is true
+
+    pass1 = torch.abs(torch.fft.fftfreq(x.shape[-1], device=x.device)) < freq_limit_low
+    pass2 = torch.abs(torch.fft.fftfreq(x.shape[-2], device=x.device)) < freq_limit_low
+    kernel2 = torch.outer(pass2, pass1)  # freq_limit_low square is true
+
+    kernel = kernel1 * (~kernel2)  # a square ring is true
+    fft_1 = torch.fft.fftn(x, dim=(2, 3, 4))
+    imgs = torch.fft.ifftn(fft_1 * (~kernel), dim=(2, 3, 4)).float()
+    x0, x1, x2 = torch.chunk(imgs, 3, dim=1)
+    imgs = torch.cat((x0.squeeze(1), x1.squeeze(1), x2.squeeze(1)), dim=1)
+
+    return imgs
