@@ -15,6 +15,16 @@ from svea import SVEAAgent
 from utils import random_mask_freq_v2, random_mask_freq_v1
 
 
+class SRMAugmentation(nn.Module):
+    def __init__(self, aug):
+        super().__init__()
+        self.aug = aug
+
+    def forward(self, x):
+        y = random_overlay(self.aug(x.float()))
+        return random_mask_freq_v2(y)
+
+
 class SRMAgent(SVEAAgent):
     def __init__(self, obs_shape, action_shape, device, lr, feature_dim,
                  hidden_dim, critic_target_tau, num_expl_steps,
@@ -26,6 +36,7 @@ class SRMAgent(SVEAAgent):
             update_every_steps, stddev_schedule, stddev_clip, use_tb,
             super_lr, update_super_times, super_start_step, use_super)
 
+        self.augment = SRMAugmentation(self.aug)
 
     def update(self, replay_buffer, step):
         metrics = dict()
@@ -38,21 +49,23 @@ class SRMAgent(SVEAAgent):
             batch, self.device)
 
         # augment
-        obs = self.aug(obs.float())
         original_obs = obs.clone()
+        obs = self.aug(obs.float())
         next_obs = self.aug(next_obs.float())
 
         # strong augmentation + SRM
-        aug_obs = random_mask_freq_v2(random_overlay(original_obs))
+        aug_obs = self.augment(original_obs.float())
 
         # update reward model
-        for i in range(self.update_super_times):
-            self.super_model.update_reward_model(
-                obs, action, reward, discount,
-                self.encoder, self.aug, replay_buffer, step)
+        ## decrease the update times 
+        update_time = max(0 , self.update_super_times-int(step * 2 *5/500100))
+        for i in range(update_time):
             reward_metrics = self.super_model.update_reward_model(
-                aug_obs, action, reward, discount,
-                self.encoder, self.aug, replay_buffer, step)
+                torch.cat([obs, aug_obs], dim=0), action, reward, discount,
+                self.encoder, self.augment, replay_buffer, step)
+            # reward_metrics = self.super_model.update_reward_model(
+            #     aug_obs, action, reward, discount,
+            #     self.encoder, self.aug, replay_buffer, step)
         metrics.update(reward_metrics)
 
         # with torch.no_grad():

@@ -301,7 +301,7 @@ class SuperModel(EmptySuperModel):
                                         rew_feature_dim, hidden_dim, 1, positive).to(device)
 
         # Initial optimizers
-        # self.encoder_opt = torch.optim.Adam(self.encoder.parameters(), lr=lr*0.5)
+        # self.encoder_opt = torch.optim.Adam(self.encoder.parameters(), lr=lr)
         self.reward_model_opt = torch.optim.Adam(self.reward_model.parameters(), lr=lr)
 
         self.train()
@@ -373,18 +373,29 @@ class SuperModel(EmptySuperModel):
         elif step == self.initial_training_step:
             self.pertrain_model(replay_buffer, aug, encoder, encoder_opt, step)
 
+        act, rew = action, reward
+        if obs.shape[0] != action.shape[0]:
+            act = action.repeat(2, 1)
+            rew = reward.repeat(2, 1)
+            assert obs.shape[0] == act.shape[0] and obs.shape[0] == rew.shape[0], \
+                    print(obs.shape, act.shape, rew.shape)
+
         # Compute reward features
         #     reward_feature: (2, batch_size, rew_feature_dim)
-        reward_feature, reward_feature_std = self.reward_model(encoder(obs), action, reward)
-
-        recon_loss, recon_metrics = self.update_model_via_reconst(
-            reward_feature, reward)
-        infor_loss, infor_metrics = self.update_model_via_inforbn(
-            reward_feature, reward_feature_std, step)
-        # infor_loss, infor_metrics = 0.0, dict()
-        # infor_metrics['super_rew_relevant_loss'] = 0.0
-        # infor_metrics['super_rew_irrelevant_loss'] = 0.0
-        # infor_metrics['super_rew_irrelevant_beta'] = 0.0
+        reward_feature, reward_feature_std = self.reward_model(encoder(obs), act, rew)
+        # Compute reconstruction loss
+        recon_loss, recon_metrics = self.update_model_via_reconst(reward_feature, rew)
+        # Compute information bottleneck loss
+        rf, rf_std = reward_feature, reward_feature_std
+        if obs.shape[0] != action.shape[0]:
+            batch_size = action.shape[0]
+            rf, rf_std = reward_feature[:, batch_size:], reward_feature_std[:, batch_size:]
+        infor_loss, infor_metrics = self.update_model_via_inforbn(rf, rf_std, step)
+        # Delete information bottleneck
+        ## infor_loss, infor_metrics = 0.0, dict()
+        ## infor_metrics['super_rew_relevant_loss'] = 0.0
+        ## infor_metrics['super_rew_irrelevant_loss'] = 0.0
+        ## infor_metrics['super_rew_irrelevant_beta'] = 0.0
 
         # Optimize reward mode
         if encoder_opt is not None:
@@ -400,8 +411,8 @@ class SuperModel(EmptySuperModel):
         metrics.update(infor_metrics)
         # self.reward_model.log(metrics)
 
-        # reward_feature, _ = self.reward_model(obs, action, reward)
-        # self.update_reward_feature(self.reward_model.rf_forward(reward)[0], step)
+        if obs.shape[0] != action.shape[0]:
+            obs = obs[action.shape[0]:]
         self.update_reward_feature(self.reward_model.sa_forward(encoder(obs), action)[0], step)
         return metrics
 
