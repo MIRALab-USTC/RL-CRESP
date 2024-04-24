@@ -32,6 +32,10 @@ device: cuda
 save_video: True
 save_train_video: False
 use_tb: True
+# wandb logging
+use_wandb: False
+project: CREST
+group: ${exp_name}
 # experiment
 experiment: exp
 # agent

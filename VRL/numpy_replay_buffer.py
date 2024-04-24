@@ -43,7 +43,7 @@ class EfficientReplayBuffer(AbstractReplayBuffer):
         self.discount_vec = np.power(discount, np.arange(nstep))  # n_step - first dim should broadcast
         self.next_dis = discount ** nstep
         self.sarsa = sarsa
-        self.rew_noise = rew_noise # (mu=0, std=?, enable=false)
+        self.rew_noise = rew_noise # (mu=0, std=?, rate=1.0, enable=false)
 
     def _initial_setup(self, time_step):
         self.index = 0
@@ -131,6 +131,8 @@ class EfficientReplayBuffer(AbstractReplayBuffer):
         all_rewards = self.rew[gather_ranges]
         if self.rew_noise.enable:
             noise = np.random.randn(*all_rewards.shape) * self.rew_noise.std + self.rew_noise.mu
+            random_matrix = np.random.rand(*noise.shape)
+            noise = np.where(random_matrix > self.rew_noise.rate, 0, noise)
             all_rewards += noise
             all_rewards = all_rewards.clip(0.0, 1.0)
 

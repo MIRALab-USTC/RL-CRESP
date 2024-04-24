@@ -2,6 +2,7 @@ import torch
 import numpy as np
 
 import utils
+from video import VideoRecorder
 
 REF_MIN_SCORE = 0
 REF_MAX_SCORE = 1000
@@ -9,7 +10,8 @@ REF_MAX_SCORE = 1000
 d4rl_score = lambda rew_mean: (rew_mean - REF_MIN_SCORE) / (REF_MAX_SCORE - REF_MIN_SCORE) * 100
 
 
-def d4rl_eval_fn(video, action_repeat):
+def d4rl_eval_fn(video: VideoRecorder, action_repeat: int, dynamic_cfg: dict):
+    dynamic_cfg.enable = dynamic_cfg.eval_enable
 
     def d4rl_eval(env, env_name, agent, global_episode, global_step, global_frame, record_video, num_eval_episodes=100):
         episode = 0
@@ -25,6 +27,7 @@ def d4rl_eval_fn(video, action_repeat):
                 with torch.no_grad(), utils.eval_mode(agent):
                     action = agent.act(time_step.observation,
                                        eval_mode=True)
+                action = utils.noisy_dynamics(dynamic_cfg, action)
                 time_step = env.step(action)
                 video.record(env)
                 total_reward += time_step.reward

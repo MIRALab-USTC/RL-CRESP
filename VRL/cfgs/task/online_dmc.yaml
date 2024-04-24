@@ -19,6 +19,14 @@ critic_target_update_freq: 2
 rsd_discount: ~
 
 rew_noise:
-  enable: false
+  enable: False
   mu: 0.0
   std: 0.1
+  rate: 1.0
+
+dynamic_noise:
+  enable: False
+  eval_enable: False
+  mu: 0.0
+  std: 0.1
+  rate: 1.0

@@ -7,6 +7,8 @@ import re
 import time
 import math
 import datetime
+import uuid
+import wandb
 
 import numpy as np
 import h5py
@@ -20,6 +22,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
+
+
+def asdict(config):
+    dic = {}
+    # config_dict = config.__dict__
+    for key, value in config.items():
+        if not key.startswith('__'):
+            dic[key] = value
+    return dic
+
+
+def wandb_init(config: dict) -> None:
+    wandb.init(
+        config=config,
+        project=config["project"],
+        group=config["group"],
+        name=config["exp_name"],
+        id=str(uuid.uuid4()),
+    )
 
 
 class eval_mode:
@@ -44,6 +65,17 @@ def set_seed_everywhere(seed):
         torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
+
+
+def noisy_dynamics(dynamic_cfg: dict, action: np.ndarray):
+    if not dynamic_cfg.enable:
+        return action
+    noise = np.random.randn(*action.shape) * dynamic_cfg.std + dynamic_cfg.mu
+    random_matrix = np.random.rand(*noise.shape)
+    noise = np.where(random_matrix > dynamic_cfg.rate, 0, noise)
+    action += noise
+    action = action.clip(-1.0, 1.0)
+    return action
 
 
 def soft_update_params(net, target_net, tau):

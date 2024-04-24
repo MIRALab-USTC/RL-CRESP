@@ -14,6 +14,7 @@ os.environ['MUJOCO_GL'] = 'egl'
 from pathlib import Path
 import hydra
 import yaml
+import wandb
 import numpy as np
 import torch
 from dm_env import specs
@@ -73,6 +74,8 @@ class Workspace:
             config = yaml.load(f, Loader=yaml.SafeLoader)
         self.splogger.save_config(config)
         utils.init_sp_logger(self.splogger)
+        if self.cfg.use_wandb:
+            utils.wandb_init(utils.asdict(self.cfg))
 
         # create envs
         self.init_dcs_env()
@@ -103,7 +106,8 @@ class Workspace:
         # self.eval_on_multitask = self.cfg.eval_on_multitask
 
         self.eval_single_env = d4rl_eval_fn(self.video_recorder,
-                                            self.cfg.action_repeat)
+                                            self.cfg.action_repeat,
+                                            self.cfg.dynamic_noise)
 
     def init_dcs_env(self):
         self.train_env = dcs.make(self.cfg.task_name, self.cfg.num_sources, 84, self.cfg.action_repeat,
@@ -152,13 +156,22 @@ class Workspace:
                                          self.global_step, self.global_frame, record_video,
                                          self.cfg.num_eval_episodes)
         self.splogger.store(**eval_info)
+        eval_save_info = dict()
         if not write_log:
             for k, v in eval_info.items():
+                eval_save_info[f'eval/{k}'] = v
                 self.logger.log(f'eval/{k}', v, self.global_frame)
         else:
             with self.logger.log_and_dump_ctx(self.global_frame, ty='eval') as log:
                 for k, v in eval_info.items():
+                    eval_save_info[f'eval/{k}'] = v
                     log(k, v)
+
+        if self.cfg.use_wandb:
+            wandb.log({"epoch": self.global_episode,
+                       "step": self.global_step,
+                       "frame": self.global_frame,
+                       **eval_save_info})
 
     def eval_dcs(self, record_video):
         for env, env_name in zip(self.distracting_envs, self.distraction_modes):
@@ -176,7 +189,6 @@ class Workspace:
         self.save_log_for_the_end(
             f"{write_dir}{self.cfg.task_name}",
             self.distracting_envs[0], max_episode=100)
-
 
     def save_log_for_the_end(self, write_dir, env, max_episode=100):
         self._global_step += 1
@@ -227,6 +239,12 @@ class Workspace:
                                       EpNum=self.global_episode)
                     self.splogger.store(**train_info)
 
+                    if self.cfg.use_wandb:
+                        wandb.log({"epoch": self.global_episode,
+                                   "step": self.global_step,
+                                   "frame": self.global_frame,
+                                   **train_info})
+
                 # reset env
                 time_step = self.env.reset()
                 self.replay_buffer.add(time_step)
@@ -260,8 +278,15 @@ class Workspace:
                 self.logger.log_metrics(metrics, self.global_frame, ty='train')
                 self.splogger.store(**metrics)
 
+                if self.cfg.use_wandb:
+                    wandb.log({"epoch": self.global_episode,
+                               "step": self.global_step,
+                               "frame": self.global_frame,
+                               **metrics})
+
             # take env step
-            time_step = self.env.step(action)
+            time_step = self.env.step(
+                    utils.noisy_dynamics(self.cfg.dynamic_noise, action))
             episode_reward += time_step.reward
             self.replay_buffer.add(time_step)
             self.train_video_recorder.record(time_step.observation)
