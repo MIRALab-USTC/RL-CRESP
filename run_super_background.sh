@@ -1,17 +1,17 @@
-task_name=(cartpole_swingup finger_spin cheetah_run ball_in_cup_catch reacher_easy walker_walk)
-cuda_id=(1 1 0 4 3 2)
-seed=(8 9 8 8 8 8)
+task_name=(walker_walk walker_walk walker_walk cheetah_run cheetah_run cheetah_run)
+cuda_id=(7 1 2 3 4 5)
+seed=(1 2 3 1 2 3)
 dcs_type=background
 num_sources=2
 batch_size=256
 num_train_frames=500010
 algo=srm
-use_super=false
+use_super=true
 update_super_times=5
 super_lr=0.00005
-super_start_step=50000
-algo_name=${algo}-qf1-background2
-# algo_name=super_${algo}-aug-down-up${update_super_times}-lr${super_lr}-qf1-background2
+super_start_step=5000
+# algo_name=${algo}-qf1-background2
+algo_name=super_${algo}-aug-down-up${update_super_times}-lr${super_lr}-qf1-background2
 
 for ((i=0;i<${#cuda_id[@]};i++))
 do
